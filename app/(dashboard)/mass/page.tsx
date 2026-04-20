@@ -88,29 +88,42 @@ export default function MassSendPage() {
   };
 
   const handleStartSend = async () => {
-    if (selectedContactIds.length === 0 || selectedTemplateIds.length === 0) {
-      return toast.error("Faltan contactos o plantillas");
-    }
+  if (selectedContactIds.length === 0 || selectedTemplateIds.length === 0) {
+    return toast.error("Faltan contactos o plantillas");
+  }
 
-    setLoading(true);
-    const formData = new FormData();
-    try {
-      formData.append('contactIds', selectedContactIds.join(','));
-      formData.append('templateIds', selectedTemplateIds.join(','));
-      selectedImages.forEach(img => formData.append('images', img));
+  setLoading(true);
+  const formData = new FormData();
+  
+  try {
+    // 1. Siempre agrega los textos PRIMERO
+    formData.append('contactIds', selectedContactIds.join(','));
+    formData.append('templateIds', selectedTemplateIds.join(','));
 
-      await api.post('/whatsapp/start-mobile-campaign', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+    // 2. Agrega las imágenes solo si existen
+    if (selectedImages.length > 0) {
+      selectedImages.forEach((img) => {
+        formData.append('images', img); 
       });
-
-      setStep(3);
-      toast.success("Campaña iniciada");
-    } catch (error: any) {
-      toast.error("Error: " + (error.response?.data?.message || "Fallo de conexión"));
-    } finally {
-      setLoading(false);
     }
-  };
+
+    // 3. LA URL: Asegúrate de que coincida con el @Post del Back
+    // Tu Back tiene @Post('start-mobile-campaign'), pero el Front llama a:
+    // '/whatsapp/start-mobile-campaign' 
+    // Verifica si el prefijo 'whatsapp' está configurado en el Controller del Back.
+    await api.post('/whatsapp/start-mobile-campaign', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+
+    setStep(3);
+    toast.success("Campaña iniciada");
+  } catch (error: any) {
+    console.error("Error en el envío:", error);
+    toast.error("Error: " + (error.response?.data?.message || "Fallo de conexión"));
+  } finally {
+    setLoading(false); // Esto evita que el botón quede bloqueado
+  }
+};
 
   // Filtro local solo para plantillas (suelen ser pocas)
   const filteredTemplates = useMemo(() => {
