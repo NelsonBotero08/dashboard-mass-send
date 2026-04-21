@@ -88,15 +88,26 @@ export default function MassSendPage() {
   };
 
   const handleStartSend = async () => {
-    if (selectedContactIds.length === 0 || selectedTemplateIds.length === 0) {
-      return toast.error("Faltan contactos o plantillas");
+    // CORRECCIÓN: Validar que haya contactos Y (plantillas O imágenes)
+    const hasContacts = selectedContactIds.length > 0;
+    const hasContent = selectedTemplateIds.length > 0 || selectedImages.length > 0;
+
+    if (!hasContacts || !hasContent) {
+      return toast.error("Selecciona contactos y al menos un mensaje o imagen");
     }
 
     setLoading(true);
     const formData = new FormData();
+    
     try {
       formData.append('contactIds', selectedContactIds.join(','));
-      formData.append('templateIds', selectedTemplateIds.join(','));
+      
+      // Solo enviamos templateIds si el usuario seleccionó alguno
+      if (selectedTemplateIds.length > 0) {
+        formData.append('templateIds', selectedTemplateIds.join(','));
+      }
+      
+      // Enviamos las imágenes
       selectedImages.forEach(img => formData.append('images', img));
 
       await api.post('/whatsapp/start-mobile-campaign', formData, {
