@@ -1,8 +1,8 @@
 "use client";
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Upload, Send, CheckCircle2, Loader2, MessageSquare,
-  Search, X, Image as ImageIcon, ChevronRight
+  Search, X, Users, Image as ImageIcon, ChevronRight
 } from 'lucide-react';
 import api from '@/lib/api';
 import { toast } from 'sonner';
@@ -21,12 +21,12 @@ export default function MassSendPage() {
   const [selectedContactIds, setSelectedContactIds] = useState<number[]>([]);
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
 
-  // --- ESTADOS DE FILTRO ---
-  const [searchTerm, setSearchTerm] = useState(""); 
-  const [searchContact, setSearchContact] = useState(""); 
+  // --- ESTADOS DE FILTRO (SERVER-SIDE) ---
+  const [searchTerm, setSearchTerm] = useState(""); // Filtro de plantillas (Local)
+  const [searchContact, setSearchContact] = useState(""); // Filtro de contactos (Server)
   const [excludeDays, setExcludeDays] = useState(7);
 
-  // 1. CARGAR PLANTILLAS
+  // 1. CARGAR PLANTILLAS (Una sola vez)
   useEffect(() => {
     const fetchTemplates = async () => {
       try {
@@ -39,20 +39,23 @@ export default function MassSendPage() {
     fetchTemplates();
   }, []);
 
-  // 2. CARGAR CONTACTOS (Debounce manual)
+  // 2. CARGAR CONTACTOS (Cada vez que cambie el buscador o los días de exclusión)
+  // Implementamos un pequeño delay (debounce) para no saturar la API al escribir
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchFilteredContacts();
-    }, 400);
+    }, 400); // Espera 400ms tras dejar de escribir
+
     return () => clearTimeout(timer);
   }, [searchContact, excludeDays]);
 
   const fetchFilteredContacts = async () => {
     try {
       setLoading(true);
+      // Enviamos 'search' al backend para que busque en TODA la BD
       const res = await api.get(`/whatsapp/contacts`, {
         params: {
-          limit: 100,
+          limit: 100, // Traemos solo 100 resultados relevantes para no saturar el scroll
           excludeDays: excludeDays,
           search: searchContact 
         }
@@ -70,7 +73,7 @@ export default function MassSendPage() {
     setSelectedContactIds(prev => {
       if (prev.includes(id)) return prev.filter(cId => cId !== id);
       if (prev.length >= 50) {
-        toast.warning("Límite de seguridad: 50 contactos");
+        toast.warning("Límite de seguridad: 50 contactos por envío");
         return prev;
       }
       return [...prev, id];
@@ -85,47 +88,31 @@ export default function MassSendPage() {
   };
 
   const handleStartSend = async () => {
-    if (selectedContactIds.length === 0) {
-      return toast.error("Debes seleccionar al menos un contacto");
-    }
-
-    const hasTemplates = selectedTemplateIds.length > 0;
-    const hasImages = selectedImages.length > 0;
-
-    if (!hasTemplates && !hasImages) {
-      return toast.error("Selecciona al menos una plantilla o una imagen");
+    if (selectedContactIds.length === 0 || selectedTemplateIds.length === 0) {
+      return toast.error("Faltan contactos o plantillas");
     }
 
     setLoading(true);
     const formData = new FormData();
-    
     try {
       formData.append('contactIds', selectedContactIds.join(','));
-      formData.append('templateIds', hasTemplates ? selectedTemplateIds.join(',') : '');
+      formData.append('templateIds', selectedTemplateIds.join(','));
+      selectedImages.forEach(img => formData.append('images', img));
 
-      if (hasImages) {
-        selectedImages.forEach((img) => {
-          formData.append('images', img);
-        });
-      }
-
-      const response = await api.post('/whatsapp/start-mobile-campaign', formData, {
+      await api.post('/whatsapp/start-mobile-campaign', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
-      if (response.data.success) {
-        setStep(3);
-        toast.success(response.data.message || "Campaña iniciada");
-      }
+      setStep(3);
+      toast.success("Campaña iniciada");
     } catch (error: any) {
-      console.error("Error en el envío:", error);
-      const msg = error.response?.data?.message || "Fallo de conexión";
-      toast.error(`Error: ${msg}`);
+      toast.error("Error: " + (error.response?.data?.message || "Fallo de conexión"));
     } finally {
       setLoading(false);
     }
   };
 
+  // Filtro local solo para plantillas (suelen ser pocas)
   const filteredTemplates = useMemo(() => {
     return templates.filter(t =>
       t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -135,6 +122,7 @@ export default function MassSendPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-6 pb-24">
+      {/* HEADER */}
       <div className="text-center space-y-2">
         <h2 className="text-2xl md:text-3xl font-black text-slate-900 italic uppercase">Envío Masivo</h2>
         <div className="flex justify-center items-center gap-4 mt-4">
@@ -146,6 +134,7 @@ export default function MassSendPage() {
 
       <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-100 overflow-hidden">
         
+        {/* PASO 1: CONTACTOS */}
         {step === 1 && (
           <div className="p-6 md:p-8 space-y-6">
             <div className="flex flex-col md:flex-row justify-between gap-4 items-end">
@@ -175,7 +164,7 @@ export default function MassSendPage() {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input
                 type="text" 
-                placeholder="Buscar contactos..."
+                placeholder="Buscar en TODA la base de datos..."
                 className="w-full pl-12 pr-4 py-4 bg-slate-50 rounded-2xl text-sm outline-none border border-transparent focus:border-blue-200 transition-all"
                 value={searchContact} 
                 onChange={(e) => setSearchContact(e.target.value)}
@@ -226,11 +215,12 @@ export default function MassSendPage() {
           </div>
         )}
 
+        {/* PASO 2: CONTENIDO */}
         {step === 2 && (
           <div className="p-6 md:p-8 space-y-8">
             <div className="space-y-4">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <MessageSquare size={14} /> Selecciona Plantillas (Opcional si envías imagen)
+                <MessageSquare size={14} /> Selecciona Plantillas (Se rotarán)
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-2">
                 {filteredTemplates.map(t => (
@@ -260,7 +250,7 @@ export default function MassSendPage() {
                 </label>
                 {selectedImages.map((img, i) => (
                   <div key={i} className="relative w-20 h-20 rounded-2xl overflow-hidden group shadow-sm">
-                    <img src={URL.createObjectURL(img)} className="w-full h-full object-cover" alt="preview" />
+                    <img src={URL.createObjectURL(img)} className="w-full h-full object-cover" />
                     <button onClick={() => setSelectedImages(prev => prev.filter((_, idx) => idx !== i))} className="absolute inset-0 bg-rose-500/80 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><X size={20} /></button>
                   </div>
                 ))}
@@ -270,9 +260,9 @@ export default function MassSendPage() {
             <div className="flex gap-4 pt-4">
               <button onClick={() => setStep(1)} className="px-6 py-4 text-slate-400 font-black text-[10px] uppercase">Atrás</button>
               <button
-                disabled={loading || (selectedTemplateIds.length === 0 && selectedImages.length === 0)}
+                disabled={loading || selectedTemplateIds.length === 0}
                 onClick={handleStartSend}
-                className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-100 flex items-center justify-center gap-2 disabled:opacity-50"
+                className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
               >
                 {loading ? <Loader2 className="animate-spin" /> : <><Send size={18} /> Lanzar Campaña</>}
               </button>
@@ -280,13 +270,14 @@ export default function MassSendPage() {
           </div>
         )}
 
+        {/* PASO 3: ÉXITO */}
         {step === 3 && (
           <div className="p-16 text-center space-y-6">
             <div className="w-24 h-24 bg-emerald-50 text-emerald-500 rounded-[2.5rem] flex items-center justify-center mx-auto">
               <CheckCircle2 size={48} />
             </div>
             <h3 className="text-3xl font-black text-slate-800 italic">¡EN COLA!</h3>
-            <p className="text-sm text-slate-500 max-w-xs mx-auto">Los mensajes se están enviando de forma segura.</p>
+            <p className="text-sm text-slate-500 max-w-xs mx-auto">Los mensajes se están enviando de forma segura para proteger tu cuenta de WhatsApp.</p>
             <button
               onClick={() => { setStep(1); setSelectedTemplateIds([]); setSelectedContactIds([]); setSelectedImages([]); setSearchContact(""); }}
               className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em]"
