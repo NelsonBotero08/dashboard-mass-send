@@ -260,12 +260,13 @@ export default function MassSendPage() {
             <div className="flex gap-4 pt-4">
               <button onClick={() => setStep(1)} className="px-6 py-4 text-slate-400 font-black text-[10px] uppercase">Atrás</button>
               <button
-                disabled={loading || selectedTemplateIds.length === 0}
-                onClick={handleStartSend}
-                className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
-              >
-                {loading ? <Loader2 className="animate-spin" /> : <><Send size={18} /> Lanzar Campaña</>}
-              </button>
+                  // Ahora se habilita si hay plantillas O si hay imágenes seleccionadas
+                  disabled={loading || (selectedTemplateIds.length === 0 && selectedImages.length === 0)}
+                  onClick={handleStartSend}
+                  className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
+                >
+                  {loading ? <Loader2 className="animate-spin" /> : <><Send size={18} /> Lanzar Campaña</>}
+                </button>
             </div>
           </div>
         )}
